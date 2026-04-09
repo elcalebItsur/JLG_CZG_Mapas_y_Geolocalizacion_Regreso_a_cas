@@ -4,21 +4,21 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MyLocation
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.jlg_czg_mapas_y_geolocalizacion_regreso_a_cas.data.HomePreferences
 import com.example.jlg_czg_mapas_y_geolocalizacion_regreso_a_cas.data.LocationService
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
@@ -29,9 +29,11 @@ import org.osmdroid.views.overlay.Marker
 fun MapScreen() {
     val context = LocalContext.current
     val locationService = remember { LocationService(context) }
-    val viewModel: MapViewModel = viewModel(factory = MapViewModelFactory(locationService))
+    val homePreferences = remember { HomePreferences(context) }
+    val viewModel: MapViewModel = viewModel(factory = MapViewModelFactory(locationService, homePreferences))
     
     val currentLocation by viewModel.currentLocation.collectAsState()
+    val homeLocation by viewModel.homeLocation.collectAsState()
     
     val mapView = remember {
         MapView(context).apply {
@@ -62,17 +64,30 @@ fun MapScreen() {
         }
     }
 
-    LaunchedEffect(currentLocation) {
+    // Actualizar marcadores cuando cambian las ubicaciones
+    LaunchedEffect(currentLocation, homeLocation) {
+        mapView.overlays.clear()
+        
         currentLocation?.let {
-            mapView.controller.animateTo(it)
             val marker = Marker(mapView)
             marker.position = it
             marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
             marker.title = "Tu ubicación"
-            mapView.overlays.clear()
             mapView.overlays.add(marker)
-            mapView.invalidate()
         }
+        
+        homeLocation?.let {
+            val marker = Marker(mapView)
+            marker.position = it
+            marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            marker.title = "Casa"
+            // Diferenciar el marcador de casa
+            marker.icon = ContextCompat.getDrawable(context, org.osmdroid.library.R.drawable.marker_default)
+            // Podríamos usar un color diferente si tuviéramos assets, por ahora se queda por defecto o tintado
+            mapView.overlays.add(marker)
+        }
+        
+        mapView.invalidate()
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -81,13 +96,53 @@ fun MapScreen() {
             modifier = Modifier.fillMaxSize()
         )
 
-        FloatingActionButton(
-            onClick = { viewModel.updateLocation() },
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(16.dp)
+                .padding(16.dp),
+            horizontalAlignment = Alignment.End
         ) {
-            Icon(Icons.Default.MyLocation, contentDescription = "Mi ubicación")
+            // Botón para ir a casa (o establecerla si no existe)
+            FloatingActionButton(
+                onClick = { 
+                    if (homeLocation == null) {
+                        // Usar las coordenadas proporcionadas por el usuario
+                        viewModel.saveHome(20.13956086886095, -101.15067370665088)
+                    } else {
+                        homeLocation?.let { mapView.controller.animateTo(it) }
+                    }
+                },
+                modifier = Modifier.padding(bottom = 8.dp),
+                containerColor = MaterialTheme.colorScheme.secondary
+            ) {
+                Icon(Icons.Default.Home, contentDescription = "Casa")
+            }
+
+            // Botón Mi Ubicación
+            FloatingActionButton(
+                onClick = { 
+                    viewModel.updateLocation()
+                    currentLocation?.let { mapView.controller.animateTo(it) }
+                }
+            ) {
+                Icon(Icons.Default.MyLocation, contentDescription = "Mi ubicación")
+            }
+        }
+        
+        // Indicador de "Casa no establecida"
+        if (homeLocation == null) {
+            Card(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 32.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Text(
+                    "Pulsa el botón de casa para establecer destino",
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
         }
     }
 
@@ -98,9 +153,11 @@ fun MapScreen() {
     }
 }
 
-// Factory simple para el ViewModel ya que no usamos DI aún
-class MapViewModelFactory(private val locationService: LocationService) : androidx.lifecycle.ViewModelProvider.Factory {
+class MapViewModelFactory(
+    private val locationService: LocationService,
+    private val homePreferences: HomePreferences
+) : androidx.lifecycle.ViewModelProvider.Factory {
     override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-        return MapViewModel(locationService) as T
+        return MapViewModel(locationService, homePreferences) as T
     }
 }
