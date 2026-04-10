@@ -1,5 +1,7 @@
 package com.example.jlg_czg_mapas_y_geolocalizacion_regreso_a_cas.ui
 
+import androidx.compose.runtime.saveable.rememberSaveable
+
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -27,6 +29,9 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.views.overlay.MapEventsOverlay
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
 
 @Composable
 fun MapScreen() {
@@ -41,13 +46,33 @@ fun MapScreen() {
     val routeSummary by viewModel.routeSummary.collectAsState()
     val isLoadingRoute by viewModel.isLoadingRoute.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
-    
+    val snackbarHostState = remember { SnackbarHostState() }
+    var hasCenteredOnFirstLocation by rememberSaveable { mutableStateOf(false) }
+
     val mapView = remember {
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
             controller.setZoom(15.0)
             controller.setCenter(GeoPoint(20.6597, -103.3496))
+        }
+    }
+
+    // Centrar automáticamente en la primera ubicación recibida
+    LaunchedEffect(currentLocation) {
+        if (currentLocation != null && !hasCenteredOnFirstLocation) {
+            mapView.controller.animateTo(currentLocation)
+            hasCenteredOnFirstLocation = true
+        }
+    }
+
+    // Mostrar instrucciones al inicio si no se ha configurado la casa
+    LaunchedEffect(homeLocation) {
+        if (homeLocation == null) {
+            snackbarHostState.showSnackbar(
+                message = "Mantén presionado en el mapa para establecer tu Casa",
+                duration = SnackbarDuration.Long
+            )
         }
     }
 
@@ -122,6 +147,11 @@ fun MapScreen() {
         AndroidView(
             factory = { mapView },
             modifier = Modifier.fillMaxSize()
+        )
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
         )
 
         // Indicador de carga
