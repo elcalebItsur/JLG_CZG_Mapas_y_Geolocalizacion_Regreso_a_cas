@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -16,7 +18,15 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "ORS_API_KEY", "\"eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjdjN2M0ZTIwMDRmODQxYzk4NzZkODU5OTg2OTFlYmVlIiwiaCI6Im11cm11cjY0In0=\"")
+
+        // Leer API Key desde local.properties
+        val properties = Properties()
+        val localPropertiesFile = project.rootProject.file("local.properties")
+        if (localPropertiesFile.exists()) {
+            properties.load(localPropertiesFile.inputStream())
+        }
+        val orsKey = properties.getProperty("ors.api.key") ?: ""
+        buildConfigField("String", "ORS_API_KEY", "\"$orsKey\"")
     }
 
     buildTypes {

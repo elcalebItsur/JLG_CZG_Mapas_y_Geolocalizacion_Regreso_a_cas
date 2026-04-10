@@ -24,6 +24,9 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polyline
+import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.views.overlay.MapEventsOverlay
 
 @Composable
 fun MapScreen() {
@@ -34,6 +37,10 @@ fun MapScreen() {
     
     val currentLocation by viewModel.currentLocation.collectAsState()
     val homeLocation by viewModel.homeLocation.collectAsState()
+    val routePoints by viewModel.routePoints.collectAsState()
+    val routeSummary by viewModel.routeSummary.collectAsState()
+    val isLoadingRoute by viewModel.isLoadingRoute.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
     
     val mapView = remember {
         MapView(context).apply {
@@ -64,10 +71,31 @@ fun MapScreen() {
         }
     }
 
-    // Actualizar marcadores cuando cambian las ubicaciones
-    LaunchedEffect(currentLocation, homeLocation) {
+    // Actualizar marcadores y ruta cuando cambian las ubicaciones
+    LaunchedEffect(currentLocation, homeLocation, routePoints) {
         mapView.overlays.clear()
         
+        // Receptor de eventos para clic largo
+        val mapEventsReceiver = object : MapEventsReceiver {
+            override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean = false
+            override fun longPressHelper(p: GeoPoint?): Boolean {
+                p?.let {
+                    viewModel.saveHome(it.latitude, it.longitude)
+                }
+                return true
+            }
+        }
+        mapView.overlays.add(MapEventsOverlay(mapEventsReceiver))
+
+        // Dibujar ruta primero (debajo de los marcadores)
+        if (routePoints.isNotEmpty()) {
+            val polyline = Polyline()
+            polyline.setPoints(routePoints)
+            polyline.outlinePaint.color = android.graphics.Color.BLUE
+            polyline.outlinePaint.strokeWidth = 10f
+            mapView.overlays.add(polyline)
+        }
+
         currentLocation?.let {
             val marker = Marker(mapView)
             marker.position = it
@@ -81,9 +109,9 @@ fun MapScreen() {
             marker.position = it
             marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
             marker.title = "Casa"
-            // Diferenciar el marcador de casa
+            // Usar icono de casa si es posible o simplemente un color distinto
             marker.icon = ContextCompat.getDrawable(context, org.osmdroid.library.R.drawable.marker_default)
-            // Podríamos usar un color diferente si tuviéramos assets, por ahora se queda por defecto o tintado
+            marker.icon?.setTint(android.graphics.Color.RED)
             mapView.overlays.add(marker)
         }
         
@@ -96,26 +124,66 @@ fun MapScreen() {
             modifier = Modifier.fillMaxSize()
         )
 
+        // Indicador de carga
+        if (isLoadingRoute) {
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(50.dp),
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        // Resumen de ruta (Distancia y Tiempo)
+        routeSummary?.let { summary ->
+            Card(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.MyLocation, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(summary, style = MaterialTheme.typography.titleMedium)
+                }
+            }
+        }
+
+        // Mensaje de error
+        errorMessage?.let { error ->
+            Snackbar(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 80.dp, start = 16.dp, end = 16.dp)
+            ) {
+                Text(error)
+            }
+        }
+
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
             horizontalAlignment = Alignment.End
         ) {
-            // Botón para ir a casa (o establecerla si no existe)
+            // Botón para ir a casa
             FloatingActionButton(
                 onClick = { 
-                    if (homeLocation == null) {
-                        // Usar las coordenadas proporcionadas por el usuario
-                        viewModel.saveHome(20.13956086886095, -101.15067370665088)
-                    } else {
-                        homeLocation?.let { mapView.controller.animateTo(it) }
+                    homeLocation?.let { 
+                        mapView.controller.animateTo(it)
+                    } ?: run {
+                        // Opcional: mostrar tooltip indicando cómo guardar casa
                     }
                 },
                 modifier = Modifier.padding(bottom = 8.dp),
                 containerColor = MaterialTheme.colorScheme.secondary
             ) {
-                Icon(Icons.Default.Home, contentDescription = "Casa")
+                Icon(Icons.Default.Home, contentDescription = "Ir a Casa")
             }
 
             // Botón Mi Ubicación
@@ -128,36 +196,11 @@ fun MapScreen() {
                 Icon(Icons.Default.MyLocation, contentDescription = "Mi ubicación")
             }
         }
-        
-        // Indicador de "Casa no establecida"
-        if (homeLocation == null) {
-            Card(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 32.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-            ) {
-                Text(
-                    "Pulsa el botón de casa para establecer destino",
-                    modifier = Modifier.padding(16.dp),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-        }
     }
 
     DisposableEffect(Unit) {
         onDispose {
             mapView.onDetach()
         }
-    }
-}
-
-class MapViewModelFactory(
-    private val locationService: LocationService,
-    private val homePreferences: HomePreferences
-) : androidx.lifecycle.ViewModelProvider.Factory {
-    override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-        return MapViewModel(locationService, homePreferences) as T
     }
 }
